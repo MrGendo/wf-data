@@ -1,0 +1,33 @@
+name: Fetch datasets from Zenodo
+# 用 GitHub runner 从 Zenodo 拉取大文件并挂到 release——绕开本机与受限服务器网络
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'Comma-separated filenames on zenodo record 14195051'
+        required: true
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download files
+        run: |
+          IFS=',' read -ra ARR <<< "${{ github.event.inputs.files }}"
+          for f in "${ARR[@]}"; do
+            echo "downloading $f"
+            curl -sL --retry 8 --retry-all-errors -C - -o "$f" "https://zenodo.org/records/14195051/files/$f?download=1"
+            ls -lh "$f"; md5sum "$f" | tee -a md5.txt
+          done
+      - name: Upload to existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          IFS=',' read -ra ARR <<< "${{ github.event.inputs.files }}"
+          gh release upload datasets-v1 "${ARR[@]}" --clobber
+      - name: Upload checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload datasets-v1 md5.txt --clobber
