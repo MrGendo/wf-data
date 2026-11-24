@@ -1,5 +1,6 @@
 name: Fetch datasets from Zenodo
-# 用 GitHub runner 从 Zenodo 拉取大文件并挂到 release——绕开本机与受限服务器网络
+# 用 GitHub runner 从 Zenodo 拉取大文件并挂到 release；每个文件配独立 .md5 资产，
+# 避免多次运行互相覆盖汇总校验文件
 on:
   workflow_dispatch:
     inputs:
@@ -18,16 +19,15 @@ jobs:
           IFS=',' read -ra ARR <<< "${{ github.event.inputs.files }}"
           for f in "${ARR[@]}"; do
             echo "downloading $f"
-            curl -sL --retry 8 --retry-all-errors -C - -o "$f" "https://zenodo.org/records/14195051/files/$f?download=1"
-            ls -lh "$f"; md5sum "$f" | tee -a md5.txt
+            curl -sL --retry 8 --retry-all-errors -C - -o "$f" "https://zenodo.org/records/14195051/files/$f?download=1" || { echo "download failed: $f"; exit 1; }
+            unzip -tq "$f" > /dev/null || { echo "corrupt zip: $f"; exit 1; }
+            ls -lh "$f"; md5sum "$f" | awk '{print $1}' > "$f.md5"
           done
       - name: Upload to existing release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           IFS=',' read -ra ARR <<< "${{ github.event.inputs.files }}"
-          gh release upload datasets-v1 "${ARR[@]}" --clobber
-      - name: Upload checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload datasets-v1 md5.txt --clobber
+          for f in "${ARR[@]}"; do
+            gh release upload datasets-v1 "$f" "$f.md5" --clobber
+          done
